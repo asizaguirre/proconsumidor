@@ -1,0 +1,14 @@
+{
+  "name": "elasticsearch-sink-reclamacao",
+  "config": {
+    "connector.class": "io.confluent.connect.elasticsearch.ElasticsearchSinkConnector",
+    "tasks.max": "1",
+    "topics": "mssql_procon.dbo.reclamacao",
+    "connection.url": "http://elasticsearch:9200",
+    "type.name": "_doc",
+    "key.ignore": "false",
+    "schema.ignore": "true",
+    "write.method": "upsert",
+    "document.id.strategy": "io.confluent.connect.elasticsearch.key.KafkaKeyDocumentIdStrategy"
+  }
+}

@@ -1,0 +1,18 @@
+server:
+  port: 8081
+
+spring:
+  application:
+    name: proconsumidor-query
+  elasticsearch:
+    uris: http://localhost:9200
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          # Mock issuer uri for testing (Entra ID usually has something like https://login.microsoftonline.com/{tenantId}/v2.0)
+          issuer-uri: https://login.microsoftonline.com/mock-tenant/v2.0
+          
+logging:
+  level:
+    br.gov.mj.senacon: DEBUG

@@ -1,0 +1,17 @@
+{
+  "name": "sqlserver-source-reclamacao",
+  "config": {
+    "connector.class": "io.debezium.connector.sqlserver.SqlServerConnector",
+    "tasks.max": "1",
+    "database.hostname": "mssql",
+    "database.port": "1433",
+    "database.user": "sa",
+    "database.password": "ProConsu@2026QA",
+    "database.server.name": "mssql_procon",
+    "database.names": "ProConsumidorDB",
+    "table.include.list": "dbo.reclamacao",
+    "database.history.kafka.bootstrap.servers": "kafka:29092",
+    "database.history.kafka.topic": "schema-changes.reclamacao",
+    "database.encrypt": "false"
+  }
+}
