@@ -10,17 +10,26 @@ A arquitetura baseada no modelo Azure com tolerância a alto tráfego se divide 
 
 ## Entendendo os Papéis: O que é Command e Query?
 
-O padrão utilizado nesta evolução chama-se **CQRS** (*Command Query Responsibility Segregation*, ou Segregação de Responsabilidade entre Comando e Consulta). Ele parte da premissa de que a forma como você **Lê** um dado quase nunca tem os mesmos requisitos e o mesmo nível de stress de como você **Grava** um dado. 
+O padrão utilizado nesta evolução chama-se **CQRS** (*Command Query Responsibility Segregation*). 
+Imagine que o fluxo de dados tradicional de um sistema (onde a mesma API lê e salva dados no mesmo banco SQL) é uma rodovia de mão dupla simples. O problema aqui é que a aplicação atual loga usuários humanos (*Procons*) enquanto Fornecedores rodam disparos volumosos e assíncronos. Se todo mundo usar a mesma rua e baterem na mesma ponte (Banco SQL Server), ela trava, gerando o problema de lock. 
 
-### 🟢 O Módulo "Command" (Escrita)
-O **Command** representa qualquer ação que altere o estado do sistema (uma solicitação de um robô da Amazon para atualizar um "Status de Reclamação" ou cadastrar uma defesa, por exemplo).
-- **Para que serve:** Ele é inteiramente responsável por validar as regras de negócio de escrita e salvar com segurança no **SQL Server** nativo da ProConsumidor.
-- **Por que ele é isolado:** Como integrações de Fornecedores podem mandar 10.000 requisições simultâneas e inviabilizar o banco dos Procons, este módulo deixou de ser uma "API Web Aberta" e passou a ser um "Worker", ou seja, um trabalhador de fundo (em Background) que tira os pedidos gradualmente da "Fila/Mensageria" (Service Bus / Rabbit) e vai gravando no SQL sem criar tumultos e sem "lockar" a base de dados em massa.
+A arquitetura resolve isso cortando os cruzamentos e dividindo literalmente a nossa via em duas estradas focadas:
 
-### 🔵 O Módulo "Query" (Leitura)
-A **Query** representa as consultas (quando um Bot quer obter a lista das reclamações ativas no dia, ler protocolos, etc).
-- **Para que serve:** Diferente da aplicação legado que procuraria tudo no SQL Server, nosso módulo Query expõe uma API REST exclusiva para essa leitura. Porém, ele **não bate no SQL Server**. Ele se comunica puramente com um banco NoSQL paralelo focado em buscas textuais poderosas (Elasticsearch), blindando totalmente o sistema original.
-- **Como os dados chegam de um lado pro outro?** O *Kafka Connect / Debezium* fica silenciosamente lendo o log do SQL Server. Sempre que o **Command** altera com segurança um registro lá, em questão de milissegundos essa informação é replicada pro Elasticsearch, deixando a API **Query** sempre com dados fresquinhos para servir os bots nas frações de segundos em velocidade de cache.
+### 🟢 1. O Time "Command" (Escritores Assíncronos)
+**Command significa "Ações" (ou Comandos de Atualização).**
+Sempre que um bot quiser "mudar" algo (Atualizar uma reclamação, por exemplo), a requisição chega no **proconsumidor-command**. 
+- **Como age na prática?** Em vez de ir direto tentar rodar o `UPDATE` e brigar por espaço no banco, ele pega esse "Comando", entrega como um papel numa **Fila de Mensageria (RabbitMQ)** e fala para o robô lá de fora: *"Recebi! Já vamos processar!"*. 
+- Como esse módulo trabalha em **Background**, ele consome a fila no ritmo que o Banco SQL aguenta e grava preservando a "saúde" do banco (*Backpressure*). Resultado: O banco não congestiona.
+
+### 🔵 2. O Time "Query" (Leitores a Jato)
+**Query significa "Busca/Consulta" (ou Leitura Textual).**
+Sempre que um robô quer pesquisar ("*Me dê todas as reclamações não tratadas do Carrefour*"), essa rota vai direto pro **proconsumidor-query**. 
+- **Como age na prática?** Ele NUNCA envia a sua busca para o SQL original. Ele usa uma vitrine paralela **(Elasticsearch)**. Esse banco é desenhado para não sentir peso e varrer campos de texto infinitamente mais rápido que queryings em Tabelas Relacionais. 
+
+### ⚙️ E como a "Ponte" liga os lados? (O CDC)
+O CDC (*Change Data Capture - Kafka Debezium*) atua como a magia por trás: Sempre que o time **Command** termina de guardar com segurança um dado na tabela do SQL, o Banco de Dados emite um sinal no seu Log nativo. O Debezium "escuta", retira a edição dali no mesmo milissegundo e manda o documento novo para as prateleiras do time **Query** (no Elasticsearch). 
+
+Ou seja: Quem edita o banco original nunca concorre memória com quem está lendo relatórios, matando a indisponibilidade sistêmica.
 
 ## Requisitos
 * Docker e Docker Compose instalados na máquina.
