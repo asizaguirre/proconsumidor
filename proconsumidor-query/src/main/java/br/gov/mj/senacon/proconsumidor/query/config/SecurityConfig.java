@@ -15,7 +15,8 @@ public class SecurityConfig {
         http
             .authorizeHttpRequests(authorize -> authorize
                 .requestMatchers("/actuator/health", "/actuator/info").permitAll() // Para readiness/liveness no gateway
-                .anyRequest().authenticated()
+                // .anyRequest().authenticated() // <-- (Comentado para testes locais da PoC)
+                .anyRequest().permitAll()
             )
             .oauth2ResourceServer(oauth2 -> oauth2.jwt(jwt -> {
                 // Configuração delegada ao application.yml (issuer-uri)

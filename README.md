@@ -59,7 +59,49 @@ cd proconsumidor-query
 mvn spring-boot:run
 ```
 
-## Como Testar?
-1. **Gerar Reclamação:** Faça o publish de uma mensagem no RabbitMQ (`localhost:15672`, admin/admin) na fila de atualização. O `proconsumidor-command` gravará a linha no MSSQL.
-2. **Sincronismo:** O Debezium monitorará a operação e enviará o JSON em tempo real para o Elasticsearch (porta 9200).
-3. **Leitura Exclusiva (Bots):** Consuma a API do módulo Query em `localhost:8081/api/v1/reclamacoes` informando um Token JWT válido ou removendo provisoriamente a autenticação na classe `SecurityConfig`. Essa API lerá super rápido na base paralela, protegendo o MSSQL do tráfego do legado.
+## Roteiro Prático de Teste (Ponta a Ponta)
+
+Siga este roteiro assim que a infraestrutura (`docker-compose up -d`) e as aplicações Spring Boot estiverem mapeadas para validar todo o fluxo proposto de **CQRS e Proteção Relacional**:
+
+### Passo 1: Habilitar o CDC no Banco de Dados
+O microserviço `proconsumidor-command` recriou a tabela `reclamacao` usando o Hibernate. Agora, você deve habilitar o monitoramento de CDC no SQL Server para esta tabela. Rode o comando:
+```bash
+docker exec -it mssql /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'ProConsu@2026QA' -C -Q "USE ProConsumidorDB; EXEC sys.sp_cdc_enable_db; EXEC sys.sp_cdc_enable_table @source_schema = N'dbo', @source_name = N'reclamacao', @role_name = NULL;"
+```
+
+### Passo 2: Inicializar Leitor Debezium e Escritor (Elastic)
+Registraremos as tasks no cluster do **Kafka Connect**, que orquestrará as transferências passivas e em tempo real.
+```bash
+# Registrar Leitor no SQL Server
+curl -i -X POST -H "Accept:application/json" -H "Content-Type:application/json" http://localhost:8083/connectors/ -d @infrastructure/cdc-connectors/sqlserver-source-connector.json
+
+# Registrar Escritor para o Elasticsearch
+curl -i -X POST -H "Accept:application/json" -H "Content-Type:application/json" http://localhost:8083/connectors/ -d @infrastructure/cdc-connectors/elasticsearch-sink-connector.json
+```
+
+### Passo 3: Injetar Operação de Escrita do "Bot" na Fila
+Em vez de sobrecarregar a porta HTTP, o *Worker* está ouvindo a fila do RabbitMQ. Vamos postar um JSON simulando que o Azure API Management e o Service Bus processaram e entregaram uma "Atualização de Status de Reclamação" automatizada para nossa fila `reclamacao.atualizar.queue`:
+
+```bash
+curl -i -u admin:admin -X POST http://localhost:15672/api/exchanges/%2f/amq.default/publish \
+-H "content-type:application/json" \
+-d '{
+  "properties": {},
+  "routing_key": "reclamacao.atualizar.queue",
+  "payload": "{\"protocolo\": \"2026-XPT001-A\", \"fornecedorId\": \"FORNECEDOR_MOCK\", \"status\": \"EM_ANALISE\", \"usuarioBot\": \"Bot_Submarino_01\", \"originIp\": \"192.168.1.55\"}",
+  "payload_encoding": "string"
+}'
+```
+*Observe em seu terminal do `proconsumidor-command` o console confirmar a gravação da linha.*
+
+### Passo 4: Verificar a API de Indexação/Consultas (Query Module)
+Em questão de milissegundos após a gravação no MSSQL, o Kafka Connect lê o CT Log do SQL, injeta no Elasticsearch, e agora os *Bots* ou *Data Lakes* poderão consultar o dado recém-criado batendo apenas contra a nossa API Otimizada de Leitura sem incomodar o sistema legado do Procon:
+
+Para viabilizar este teste de prova de conceito local e rápido - e uma vez que não conectamos a API a um Active Directory em nuvem ainda - você precisará **remover ou comentar temporariamente a restrição JWT** alterando e salvando a classe `SecurityConfig.java` no pacote `proconsumidor-query` para `.anyRequest().permitAll()` antes de disparar o run inicial ou reenviar as requisições, para liberar o Actuator API sem um Token Entra ID.
+
+Após a alteração do `SecurityConfig`, reinicie o serviço Query e rode:
+```bash
+curl -X GET "http://localhost:8081/api/v1/reclamacoes?page=0&size=10"
+```
+
+**Resultado esperado**: Sua resposta deverá conter o Payload `2026-XPT001-A` servido totalmente do cache de indexação (`_id` mapeado da base master), garantindo que nossa implementação CQRS funcionou perfeitamente e é escalável!
