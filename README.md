@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="qintess_logo.jpeg" alt="Qintess Logo" width="200">
+</p>
+
 # Pro Consumidor - Evolução Arquitetural CQRS
 
 Este projeto apresenta a Prova de Conceito (PoC) da nova arquitetura proposta para a mitigação de uso indevido por integrações automatizadas (bots), utilizando os conceitos de **CQRS** (Command Query Responsibility Segregation) e mensageria assíncrona.
@@ -15,18 +19,18 @@ Imagine que o fluxo de dados tradicional de um sistema (onde a mesma API lê e s
 
 A arquitetura resolve isso cortando os cruzamentos e dividindo literalmente a nossa via em duas estradas focadas:
 
-### 🟢 1. O Time "Command" (Escritores Assíncronos)
+### 1. O Time "Command" (Escritores Assíncronos)
 **Command significa "Ações" (ou Comandos de Atualização).**
 Sempre que um bot quiser "mudar" algo (Atualizar uma reclamação, por exemplo), a requisição chega no **proconsumidor-command**. 
 - **Como age na prática?** Em vez de ir direto tentar rodar o `UPDATE` e brigar por espaço no banco, ele pega esse "Comando", entrega como um papel numa **Fila de Mensageria (RabbitMQ)** e fala para o robô lá de fora: *"Recebi! Já vamos processar!"*. 
 - Como esse módulo trabalha em **Background**, ele consome a fila no ritmo que o Banco SQL aguenta e grava preservando a "saúde" do banco (*Backpressure*). Resultado: O banco não congestiona.
 
-### 🔵 2. O Time "Query" (Leitores a Jato)
+### 2. O Time "Query" (Leitores a Jato)
 **Query significa "Busca/Consulta" (ou Leitura Textual).**
 Sempre que um robô quer pesquisar ("*Me dê todas as reclamações não tratadas do Carrefour*"), essa rota vai direto pro **proconsumidor-query**. 
 - **Como age na prática?** Ele NUNCA envia a sua busca para o SQL original. Ele usa uma vitrine paralela **(Elasticsearch)**. Esse banco é desenhado para não sentir peso e varrer campos de texto infinitamente mais rápido que queryings em Tabelas Relacionais. 
 
-### ⚙️ E como a "Ponte" liga os lados? (O CDC)
+### E como a "Ponte" liga os lados? (O CDC)
 O CDC (*Change Data Capture - Kafka Debezium*) atua como a magia por trás: Sempre que o time **Command** termina de guardar com segurança um dado na tabela do SQL, o Banco de Dados emite um sinal no seu Log nativo. O Debezium "escuta", retira a edição dali no mesmo milissegundo e manda o documento novo para as prateleiras do time **Query** (no Elasticsearch). 
 
 Ou seja: Quem edita o banco original nunca concorre memória com quem está lendo relatórios, matando a indisponibilidade sistêmica.
