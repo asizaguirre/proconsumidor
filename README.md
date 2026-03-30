@@ -8,6 +8,20 @@ A arquitetura baseada no modelo Azure com tolerância a alto tráfego se divide 
 2. **proconsumidor-command**: Módulo Worker assíncrono conectado via AMQP (simulando Service Bus).
 3. **Change Data Capture**: Debezium conectado ao SQL Server alimentando o índice do Elasticsearch de forma automática.
 
+## Entendendo os Papéis: O que é Command e Query?
+
+O padrão utilizado nesta evolução chama-se **CQRS** (*Command Query Responsibility Segregation*, ou Segregação de Responsabilidade entre Comando e Consulta). Ele parte da premissa de que a forma como você **Lê** um dado quase nunca tem os mesmos requisitos e o mesmo nível de stress de como você **Grava** um dado. 
+
+### 🟢 O Módulo "Command" (Escrita)
+O **Command** representa qualquer ação que altere o estado do sistema (uma solicitação de um robô da Amazon para atualizar um "Status de Reclamação" ou cadastrar uma defesa, por exemplo).
+- **Para que serve:** Ele é inteiramente responsável por validar as regras de negócio de escrita e salvar com segurança no **SQL Server** nativo da ProConsumidor.
+- **Por que ele é isolado:** Como integrações de Fornecedores podem mandar 10.000 requisições simultâneas e inviabilizar o banco dos Procons, este módulo deixou de ser uma "API Web Aberta" e passou a ser um "Worker", ou seja, um trabalhador de fundo (em Background) que tira os pedidos gradualmente da "Fila/Mensageria" (Service Bus / Rabbit) e vai gravando no SQL sem criar tumultos e sem "lockar" a base de dados em massa.
+
+### 🔵 O Módulo "Query" (Leitura)
+A **Query** representa as consultas (quando um Bot quer obter a lista das reclamações ativas no dia, ler protocolos, etc).
+- **Para que serve:** Diferente da aplicação legado que procuraria tudo no SQL Server, nosso módulo Query expõe uma API REST exclusiva para essa leitura. Porém, ele **não bate no SQL Server**. Ele se comunica puramente com um banco NoSQL paralelo focado em buscas textuais poderosas (Elasticsearch), blindando totalmente o sistema original.
+- **Como os dados chegam de um lado pro outro?** O *Kafka Connect / Debezium* fica silenciosamente lendo o log do SQL Server. Sempre que o **Command** altera com segurança um registro lá, em questão de milissegundos essa informação é replicada pro Elasticsearch, deixando a API **Query** sempre com dados fresquinhos para servir os bots nas frações de segundos em velocidade de cache.
+
 ## Requisitos
 * Docker e Docker Compose instalados na máquina.
 * Java 21 (JDK) ou superior instalado.
