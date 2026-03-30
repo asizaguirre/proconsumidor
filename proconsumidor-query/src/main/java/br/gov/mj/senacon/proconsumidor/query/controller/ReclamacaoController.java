@@ -35,10 +35,11 @@ public class ReclamacaoController {
             Pageable pageable,
             @AuthenticationPrincipal Jwt jwt) {
         
-        // Simulando que o Entra ID adiciona um claim chamado "fornecedorId"
+        // [PRODUÇÃO] O fornecedorId virá obrigatoriamente do Claim injetado pelo Entra ID via APIM.
+        // [TESTE LOCAL] Usamos "FORNECEDOR_MOCK" para validar o fluxo do Elasticsearch sem infra de Identity.
         String fornecedorId = jwt != null && jwt.hasClaim("fornecedorId") 
                 ? jwt.getClaimAsString("fornecedorId") 
-                : "FORNECEDOR_MOCK";
+                : "FORNECEDOR_MOCK"; // <-- Em produção, este fallback deve ser removido ou gerar erro 403.
 
         logger.info("Consulta recebida - Fornecedor ID: {}", fornecedorId);
         
